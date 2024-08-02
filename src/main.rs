@@ -7,6 +7,7 @@ use std::fs;
 use structopt::StructOpt;
 use chrono::Local;
 use std::io::Read;
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "courier | 信使", about = "sent email.", author = "Enomothem", version = "0.1")]
 struct Opt {
@@ -31,13 +32,14 @@ struct Opt {
     server: String,
 
     /// 指定抄送人（可选）
-    #[structopt(short, long, value_name = "xxx@xxx.com")]
+    #[structopt(short, long, value_name = "xxx@xxx.com" )]
     cc: Option<String>,
 
     /// 指定密送人（可选）
     #[structopt(short, long, value_name = "xxx@xxx.com")]
     bcc: Option<String>,
 }
+
 fn read_email_to_html(path: &str) -> String {
     // Open the file
     let mut email_file = match fs::File::open(path) {
@@ -48,29 +50,18 @@ fn read_email_to_html(path: &str) -> String {
         }
     };
 
-    // Read the file content into a byte vector
     let mut email_bytes = Vec::new();
     if let Err(e) = email_file.read_to_end(&mut email_bytes) {
         eprintln!("Unable to read file: {}", e);
         return String::new();
     }
 
-    // Convert the byte vector to a String, ignoring UTF-8 errors
     String::from_utf8_lossy(&email_bytes).to_string()
 }
+
 fn main() {
     let opt = Opt::from_args();
-
-    // // 邮件内容
-    // let mut html_file = fs::File::open(opt.report.clone()).expect("Failed");
-
-    // let mut html = String::new();
-    // html_file.read_to_string(&mut html).expect("Unable to read file");
-    // html = String::from_utf8_lossy(&mut html).to_string();
-
-
     
-
     // 邮件的附件构造
     let attachment = Attachment::new(opt.report.clone().into())
         .body(
@@ -78,9 +69,6 @@ fn main() {
             ContentType::parse("text/html").expect("解析html格式失败:")
         );
 
-    // let html_bytes = fs::read(&opt.report).expect("Unable to read file");
-    // // 将html_bytes转为字符串
-    // let html = String::from_utf8(html_bytes).expect("html格式转换失败");
     let html_content = read_email_to_html(&opt.report);
     // 邮件的参数
     let from_address = opt.user.clone();
@@ -100,20 +88,22 @@ fn main() {
     let smtp_server = &opt.server;
 
     // 构造邮件体内容
-    let email = Message::builder()
+    let mut email_builder = Message::builder()
         .from(from_address.parse().expect("解析发送邮箱地址失败:"))
         .to(to_address.parse().expect("解析收件邮箱地址失败: "))
-        .subject(subject)
-        .cc(cc_address.map(|s| s.parse().expect("解析抄送邮箱地址失败: ")).expect("没有抄送人"))
-        .bcc(bcc_address.map(|s| s.parse().expect("解析密送邮箱地址失败: ")).expect("没有密送人"))
+        .subject(subject);
+
+    // 处理抄送和密送地址
+    if let Some(cc) = cc_address {
+        email_builder = email_builder.cc(cc.parse().expect("解析抄送邮箱地址失败: "));
+    }
+    if let Some(bcc) = bcc_address {
+        email_builder = email_builder.bcc(bcc.parse().expect("解析密送邮箱地址失败: "));
+    }
+
+    let email = email_builder
         .multipart(
             MultiPart::mixed() // 使用混合模式
-                // .singlepart(
-                //     SinglePart::builder()
-                //         .header(header::ContentType::TEXT_PLAIN)
-                //         // 应该是为了防止邮件服务器不支持HTML格式邮件
-                //         .body(String::from("该邮件服务器不支持html渲染。")),
-                // )
                 .singlepart(
                     SinglePart::builder()
                         .header(header::ContentType::TEXT_HTML)
