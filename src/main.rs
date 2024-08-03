@@ -4,17 +4,20 @@ use lettre::{
 };
 use lettre::transport::smtp::authentication::Credentials;
 use std::fs;
+use std::io::{self, Write};
 use structopt::StructOpt;
 use chrono::Local;
 use std::io::Read;
+use std::fs::OpenOptions;
+use std::path::Path;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "courier | 信使", about = "sent email.", author = "Enomothem", version = "0.1")]
+#[structopt(name = "courier | 信使", about = "sent email.", author = "Enomothem", version = "0.2")]
 struct Opt {
     /// 指定账号
     #[structopt(short, long, value_name = "xxx@xxx.com")]
     user: String,
-
+    
     /// 指定密码
     #[structopt(short, long, value_name = "key")]
     key: String,
@@ -59,9 +62,23 @@ fn read_email_to_html(path: &str) -> String {
     String::from_utf8_lossy(&email_bytes).to_string()
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let opt = Opt::from_args();
-    
+
+    // 检查是否存在日志文件
+    if !Path::new("output").exists() {
+        fs::create_dir_all("output")?;
+    }
+    // 指定要追加的文件路径
+    let file_path = "output/courier.log";
+
+    // 打开文件用于追加，如果文件不存在则创建它
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)  // 设置为追加模式
+        .open(file_path)?;
+
+
     // 邮件的附件构造
     let attachment = Attachment::new(opt.report.clone().into())
         .body(
@@ -72,13 +89,14 @@ fn main() {
     let html_content = read_email_to_html(&opt.report);
     // 邮件的参数
     let from_address = opt.user.clone();
-    let to_address = opt.to;
-    let cc_address = opt.cc;
+    let to_address = opt.to.clone();
+    let cc_address = opt.cc.clone();
     let bcc_address = opt.bcc;
 
     // 在subject标题中加入时间戳，转为日期格式
     let now = Local::now();
     let stime = now.format("%Y-%m-%d %H:%M:%S").to_string();
+
 
     let subject = format!("Linux应急响应报告 - {}", stime);
 
@@ -120,9 +138,29 @@ fn main() {
         .expect("解析SMTP服务器失败:")
         .credentials(creds)
         .build();
-
+    let time = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    // let time = "x";
+    // sleep(Duration::from_secs(2));
     match mailer.send(&email) {
-        Ok(_) => println!("邮件发送成功!"),
-        Err(e) => panic!("发送邮件失败: {e:?}"),
+        Ok(_) => {
+            
+            println!("[+] {time} 邮件发送成功!");
+
+            if let Some(cc) = &opt.cc {
+                // 如果存在 cc 参数
+                writeln!(file, "[+] {} 邮件发送成功！收信人：{}, 抄送人：{}", time, opt.to, cc)?;
+            } else {
+                // 如果不存在 cc 参数
+                writeln!(file, "[+] {} 邮件发送成功！收信人：{}", time, opt.to)?;
+            }
+        },
+        Err(e) => {
+            writeln!(file, "[!] {} 邮件发送失败: {:?}", time, e)?;
+            eprintln!("发送邮件失败: {:?}", e);
+        },
     }
+
+    Ok(())
+
+    
 }
